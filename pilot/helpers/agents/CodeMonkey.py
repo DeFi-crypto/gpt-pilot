@@ -15,7 +15,10 @@ class CodeMonkey(Agent):
         self.developer = developer
 
     def implement_code_changes(self, convo, task_description, code_changes_description, step, step_index=0):
-        convo = AgentConvo(self)
+        standalone = False
+        if not convo:
+            standalone = True
+            convo = AgentConvo(self)
 
         files = self.project.get_all_coded_files()
 
@@ -40,16 +43,15 @@ class CodeMonkey(Agent):
         file_name = os.path.join(rel_path, step['name'])
 
         llm_response = convo.send_message('development/implement_changes.prompt', {
+            "standalone": standalone,
             "code_changes_description": code_changes_description,
             "file_content": file_content,
             "file_name": file_name,
+            "files": files,
             "directory_tree": self.project.get_directory_tree(True),
         })
 
         exchanged_messages = 2
-
-        if "reports.js" in llm_response and "// Insert updated script tag content as provided" in llm_response:
-            print("HERE")
 
         for retry in range(5):
             # Modify a copy of the content in case we need to retry
@@ -130,10 +132,23 @@ class CodeMonkey(Agent):
         def indent_text(text: str, indent: int) -> str:
             return "\n".join((" " * indent + line) for line in text.splitlines())
 
+        def indent_sensitive_match(haystack: str, needle: str) -> str:
+            """
+            Check if 'needle' is in 'haystack' but compare full lines.
+
+            This is required so we don't match text "foo" (no indentation) with line "  foo"
+            (2 spaces indentation). We want exact matches so we know exact indentation needed.
+            """
+            haystack_with_line_start_stop_markers = "\n".join(f"\x00{line}\x00" for line in haystack.splitlines())
+            needle_with_line_start_stop_markers = "\n".join(f"\x00{line}\x00" for line in needle.splitlines())
+            return needle_with_line_start_stop_markers in haystack_with_line_start_stop_markers
+
         # Try from the largest indents to the smalles so that we know the correct indentation of
         # single-line old blocks that would otherwise match with 0 indent as well. If these single-line
         # old blocks were then replaced with multi-line blocks and indentation wasn't not correctly re-applied,
         # the new multiline block would only have the first line correctly indented. We want to avoid that.
+        matching_old_blocks = []
+
         for indent in range(128, -1, -1):
             text = indent_text(needle, indent)
             if text not in haystack:
@@ -145,17 +160,22 @@ class CodeMonkey(Agent):
                     for line
                     in text.splitlines()
                 )
-            if text in haystack:
-                if haystack.count(text) > 1:
-                    raise ValueError(
-                        f"Old code block found more than once in the original file:\n```\n{needle}\n```\n\n"
-                        "Please provide larger blocks (more context) to uniquely identify the code that needs to be changed."
-                    )
-                indented_replacement = indent_text(replacement, indent)
-                return haystack.replace(text, indented_replacement)
+            if indent_sensitive_match(haystack, text):
+                matching_old_blocks.append((indent, text))
 
-        raise ValueError(
-            f"Old code block not found in the original file:\n```\n{needle}\n```\n"
-            "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) as the original file "
-            "in order to match."
-        )
+        if len(matching_old_blocks) == 0:
+            raise ValueError(
+                f"Old code block not found in the original file:\n```\n{needle}\n```\n"
+                "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) as the original file "
+                "in order to match."
+            )
+
+        if len(matching_old_blocks) > 1:
+            raise ValueError(
+                f"Old code block found more than once ({len(matching_old_blocks)} matches) in the original file:\n```\n{needle}\n```\n\n"
+                "Please provide larger blocks (more context) to uniquely identify the code that needs to be changed."
+            )
+
+        indent, text = matching_old_blocks[0]
+        indented_replacement = indent_text(replacement, indent)
+        return haystack.replace(text, indented_replacement)

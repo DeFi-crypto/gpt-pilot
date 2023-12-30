@@ -1,6 +1,6 @@
-You're a senior software developer tasked with updating one file in a software project.
+{% if standalone %}You're a senior software developer tasked with updating one file in a software project.{% endif %}
 
-You're given complete original file along with the instructions for the change. For context, you're also given the directory structure (project layout) of the entire project.
+You're given complete original file along with the instructions for the change. For context, you're also given all the relevant files in the project.
 
 Your task is to modify the original file using the provided instrunctions and output *ONLY THE MODIFICATIONS*. For each chunk of modification, output it in the following format:
 
@@ -22,14 +22,12 @@ If adding code to the start or the end of the file, include the first/last line 
 can see where the new code should be added.
 
 Important: old code must be verbatim as it will be used for search-replace, including the exact indentation from the original
-code; do not add any comments or explanation.
+code; do not add any comments or explanation. Each old code block must uniquely identify the lines that need to be replaced.
 In replacement (new) code, remember to follow the same coding style that is used in the rest of the file. Pay
 special attention to the indentation of the new code and make sure include all the required new code, without omitting anything.
 
-Project structure:
-{{ directory_tree }}
-
-Relevant files:
+{% if standalone %}
+Existing project files:
 {% for file in files %}
 * `{{ file['path'] }}/{{ file['name'] }}`
 ```
@@ -37,14 +35,15 @@ Relevant files:
 ```
 
 {% endfor %}
-
-You need to modify file ({{ file_name }}):
+{% endif %}
+You need to modify file ({{ file_name }}), with current content:
 ```
 {{ file_content }}
 ```
 
-Instructions: {{ code_changes_description }}
+Here's how you need to modify this file: {{ code_changes_description }}
 
 Remember: each change must have both old and new code blocks. The old code block must be found verbatim in the original file.
 *IMPORTANT*: If the instructions provide hints like `# .. insert existing code here ...`, you must interpret those and insert
-relevant code from the original. DO NOT blindly copy from the examples in the instructions.
+relevant code from the original. DO NOT blindly copy from the examples in the instructions. NEVER omit any code that should go
+into the new block and NEVER subsitute any code with comments like `// the rest of the code goes here` or similar.

@@ -36,6 +36,7 @@ class Developer(Agent):
     def __init__(self, project):
         super().__init__('full_stack_developer', project)
         self.run_command = None
+        self.save_dev_steps = True
         self.debugger = Debugger(self)
 
     def start_coding(self):
@@ -44,14 +45,18 @@ class Developer(Agent):
             update_app_status(self.project.args['app_id'], self.project.current_step)
 
             if self.project.skip_steps is None:
-                self.project.skip_steps = False if (not self.project.continuing_project or ('skip_until_dev_step' in self.project.args and self.project.args['skip_until_dev_step'] == '0')) else True
+                if (not self.project.continuing_project or (
+                        'skip_until_dev_step' in self.project.args and self.project.args['skip_until_dev_step'] == '0')):
+                    self.project.finish_loading()
+                else:
+                    self.project.skip_steps = True
 
         # DEVELOPMENT
         print(color_green_bold("🚀 Now for the actual development...\n"))
         logger.info("Starting to create the actual code...")
 
         total_tasks = len(self.project.development_plan)
-        progress_thresholds = [33, 66]  # Percentages when documentation is created
+        progress_thresholds = [50]  # Percentages of progress when documentation is created
         documented_thresholds = set()
 
         for i, dev_task in enumerate(self.project.development_plan):
@@ -218,10 +223,10 @@ class Developer(Agent):
                 self.get_run_command(convo)
 
             if self.run_command:
-                if (self.project.ipc_client_instance is None or self.project.ipc_client_instance.client is None):
-                    human_intervention_description += color_yellow_bold('\n\nIf you want to run the app, just type "r" and press ENTER and that will run `' + self.run_command + '`')
-                else:
+                if self.project.check_ipc():
                     print(self.run_command, type='run_command')
+                else:
+                    human_intervention_description += color_yellow_bold('\n\nIf you want to run the app, just type "r" and press ENTER and that will run `' + self.run_command + '`')
 
             response = self.project.ask_for_human_intervention('I need human intervention:',
                 human_intervention_description,
@@ -460,11 +465,11 @@ class Developer(Agent):
             user_description = 'Can you check if the app works please? ' + user_description
 
             if self.run_command:
-                if self.project.ipc_client_instance is None or self.project.ipc_client_instance.client is None:
+                if self.project.check_ipc():
+                    print(self.run_command, type='run_command')
+                else:
                     user_description += color_yellow_bold(
                         '\n\nIf you want to run the app, just type "r" and press ENTER and that will run `' + self.run_command + '`')
-                else:
-                    print(self.run_command, type='run_command')
 
             # continue_description = ''
             # TODO: Wait for a specific string in the output or timeout?

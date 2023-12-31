@@ -106,14 +106,14 @@ class Project:
         if self.args['step'] is not None and STEPS.index(self.args['step']) < STEPS.index('coding'):
             clear_directory(self.root_path)
             delete_all_app_development_data(self.args['app_id'])
-            self.skip_steps = False
+            self.finish_loading()
 
         if 'skip_until_dev_step' in self.args:
             self.skip_until_dev_step = self.args['skip_until_dev_step']
             if self.args['skip_until_dev_step'] == '0':
                 clear_directory(self.root_path)
                 delete_all_app_development_data(self.args['app_id'])
-                self.skip_steps = False
+                self.finish_loading()
             elif self.skip_until_dev_step is not None:
                 should_overwrite_files = None
                 while should_overwrite_files is None or should_overwrite_files.lower() not in AFFIRMATIVE_ANSWERS + NEGATIVE_ANSWERS:
@@ -198,6 +198,11 @@ class Project:
 
         files = self.get_files([file.path + '/' + file.name for file in files])
 
+        # Don't send contents of binary files
+        for file in files:
+            if not isinstance(file["content"], str):
+                file["content"] = f"<<binary file, {len(file['content'])} bytes>>"
+
         # TODO temoprary fix to eliminate files that are not in the project
         files = [file for file in files if file['content'] != '']
         # TODO END
@@ -255,7 +260,7 @@ class Project:
         path = data['path'] if 'path' in data else name
 
         path, full_path = self.get_full_file_path(path, name)
-        update_file(full_path, data['content'])
+        update_file(full_path, data['content'], project=self)
         if full_path not in self.files:
             self.files.append(full_path)
 
@@ -381,7 +386,8 @@ class Project:
         development_step, created = DevelopmentSteps.get_or_create(id=development_step_id)
 
         for file in files:
-            print(color_cyan(f'Saving file {file["full_path"]}'))
+            if not self.check_ipc():
+                print(color_cyan(f'Saving file {file["full_path"]}'))
             # TODO this can be optimized so we don't go to the db each time
             file_in_db, created = File.get_or_create(
                 app=self.app,
@@ -405,7 +411,7 @@ class Project:
 
         clear_directory(self.root_path, IGNORE_FOLDERS + self.files)
         for file_snapshot in file_snapshots:
-            update_file(file_snapshot.file.full_path, file_snapshot.content)
+            update_file(file_snapshot.file.full_path, file_snapshot.content, project=self)
             if file_snapshot.file.full_path not in self.files:
                 self.files.append(file_snapshot.file.full_path)
 
@@ -442,12 +448,19 @@ class Project:
                     raise e
 
     def log(self, text, message_type):
-        if self.ipc_client_instance is None or self.ipc_client_instance.client is None:
-            print(text)
-        else:
+        if self.check_ipc():
             self.ipc_client_instance.send({
                 'type': MESSAGE_TYPE[message_type],
                 'content': str(text),
             })
             if message_type == MESSAGE_TYPE['user_input_request']:
                 return self.ipc_client_instance.listen()
+        else:
+            print(text)
+
+    def check_ipc(self):
+        return self.ipc_client_instance is not None and self.ipc_client_instance.client is not None
+
+    def finish_loading(self):
+        print('', type='loadingFinished')
+        self.skip_steps = False
